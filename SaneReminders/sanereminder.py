@@ -65,6 +65,7 @@ async def remindme(ctx):
         await ctx.send("""To set up a reminder, type `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm` or something similar.
                        Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
                        So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
+                       If you don't use relative times, like "in 2 hours", I highly recommend that you specify your timezone in your prompt, like `at 5pm EST` or `on april 1st 10am UTC+2`.
                        \nTo list all your reminders, just type `.remindme list`
                        \nTo delete a reminder you can use `.remindme delete <id>` where `<id>` is the id of the reminder you want to delete.
                        """)
