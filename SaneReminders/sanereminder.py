@@ -71,7 +71,7 @@ async def remindme(ctx):
                        """)
         return
 
-    print(f"-{ctx.message.content}-")
+    #print(f"-{ctx.message.content}-")
 
     if ctx.message.content.startswith(' delete'):
         try:
