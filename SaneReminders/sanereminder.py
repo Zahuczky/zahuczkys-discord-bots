@@ -1,39 +1,47 @@
 import os
-import discord
+import re
+import datetime
 
+import dateparser
+import mysql.connector
+
+import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-import re
-import datetime
-import words2num
-import mysql.connector
-import sched, time
 
-import dateparser
+HELP_STR = """To set up a reminder, type `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm` or something similar.
+Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
+So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
+If you don't use relative times, like "in 2 hours", I highly recommend that you specify your timezone in your prompt, like `at 5pm EST` or `on april 1st 10am UTC+2`.
+To list all your reminders, just type `.remindme list`
+To delete a reminder you can use `.remindme delete <id>` where `<id>` is the id of the reminder you want to delete.
+"""
+BAD_TIME_STR = """I don\'t understand that time, please try again in a more descriptive manner.
+For example: `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm`
+Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
+So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
+Use `.remindme help` for more info.
+"""
 
-from mysql.connector import Error
+def setup():
+    global TOKEN, HOST, USER, PASSWORD, DATABASE, PORT, TABLE
+    global bot
 
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
-HOST = os.getenv('DB_HOST')
-USER = os.getenv('DB_USER')
-PASSWORD = os.getenv('DB_PASS')
-DATABASE = os.getenv('DB_NAME')
-PORT = os.getenv('DB_PORT')
-TABLE = os.getenv('DB_TABLE')
+    load_dotenv()
+    TOKEN = os.getenv('DISCORD_TOKEN')
+    HOST = os.getenv('DB_HOST')
+    USER = os.getenv('DB_USER')
+    PASSWORD = os.getenv('DB_PASS')
+    DATABASE = os.getenv('DB_NAME')
+    PORT = os.getenv('DB_PORT')
+    TABLE = os.getenv('DB_TABLE')
 
-bot = commands.Bot(command_prefix='.', intents=discord.Intents.all())
+    bot = commands.Bot(command_prefix='.', intents=discord.Intents.all())
 
-def connect2db():
-    connection = mysql.connector.connect(host=HOST,
-                                            port=PORT,
-                                            database=DATABASE,
-                                            user=USER,
-                                            password=PASSWORD)
-    return connection
+def connect_to_database():
+    return mysql.connector.connect(host=HOST, port=PORT, database=DATABASE, user=USER, password=PASSWORD)
 
-import re
 
 def natural_language_to_timestamp(phrase):
     # Extract the time part from the phrase using regex
@@ -52,9 +60,7 @@ def natural_language_to_timestamp(phrase):
         return None
 
     # Convert datetime object to timestamp
-    parsed_date = parsed_date.timestamp()
-
-    return parsed_date
+    return parsed_date.timestamp()
 
 
 @bot.command(name='remindme', help='Set up reminders, just like Aquarius once did')
@@ -62,16 +68,8 @@ async def remindme(ctx):
     ctx.message.content = ctx.message.content[9:]
 
     if ctx.message.content == ' help':
-        await ctx.send("""To set up a reminder, type `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm` or something similar.
-                       Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
-                       So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
-                       If you don't use relative times, like "in 2 hours", I highly recommend that you specify your timezone in your prompt, like `at 5pm EST` or `on april 1st 10am UTC+2`.
-                       \nTo list all your reminders, just type `.remindme list`
-                       \nTo delete a reminder you can use `.remindme delete <id>` where `<id>` is the id of the reminder you want to delete.
-                       """)
+        await ctx.send(HELP_STR)
         return
-
-    #print(f"-{ctx.message.content}-")
 
     if ctx.message.content.startswith(' delete'):
         try:
@@ -80,7 +78,7 @@ async def remindme(ctx):
             await ctx.send(f'No idea what you did but I was expecting something like `.remindme delete 69420`.')
             return
         
-        connection = connect2db()
+        connection = connect_to_database()
         cursor = connection.cursor()
         sql = f"SELECT * FROM {TABLE} WHERE id = %s"
         cursor.execute(sql, (id,))
@@ -104,10 +102,10 @@ async def remindme(ctx):
         return
 
     if ctx.message.content == ' list':
-        connection = connect2db()
+        connection = connect_to_database()
         cursor = connection.cursor()
         sql = f"SELECT * FROM {TABLE} WHERE user = %s AND done = 0 AND guild = %s"
-        cursor.execute(sql, (ctx.author.id,ctx.guild.id,))
+        cursor.execute(sql, (ctx.author.id, ctx.guild.id,))
         records = cursor.fetchall()
         cursor.close()
         connection.close()
@@ -128,34 +126,23 @@ async def remindme(ctx):
 
     # Check if timestamp is None
     if timestamp is None:
-        await ctx.send("""I don\'t understand that time, please try again in a more descriptive manner.\nFor example: `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm`
-Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
-So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
-Use `.remindme help` for more info.
-                       """)
+        await ctx.send(BAD_TIME_STR)
         return
 
     # Round the timestamp to integer
     timestamp = round(timestamp)
 
     if not isinstance(timestamp, int):
-        await ctx.send("""I don\'t understand that time, please try again in a more descriptive manner.\nFor example: `.remindme in 5 minutes to take out the trash` or `.remindme to take out the trash in 5 minutes` or `.remindme to take out the trash at 5pm`
-Please keep in mind that the `in/on/at` part and the `to` part are pretty important. That's how I figure whats time and what's the reminder.
-So you can use `remindme in 10 minutes to do something` but you can't use `remindme 10 minutes do something`.
-Use `.remindme help` for more info.
-                       """)
+        await ctx.send(BAD_TIME_STR)
         return
 
-    connection = connect2db()
-    db_Info = connection.get_server_info()
-    #print("Connected to MySQL Server version ", db_Info)
+    connection = connect_to_database()
     cursor = connection.cursor()
     sql = f"select database(); INSERT INTO {TABLE} (guild, channel, user, time, message) VALUES (%s, %s, %s, %s, %s)"
     val = (ctx.guild.id, ctx.channel.id, ctx.author.id, timestamp, ctx.message.content)
     res = cursor.execute(sql, val, multi=True)
     res.send(None)
     record = cursor.fetchone()
-    #print("Data was uploaded to the db")
     cursor.close()
     connection.close()
 
@@ -165,13 +152,12 @@ Use `.remindme help` for more info.
 @tasks.loop(seconds=20)
 async def check_db():
     current_time = round(datetime.datetime.now().timestamp())
-    #print("Checking for reminders...")
-    connection = connect2db()
+    connection = connect_to_database()
     cursor = connection.cursor()
     sql = f"SELECT * FROM {TABLE} WHERE time < %s AND done = 0"
     cursor.execute(sql, (current_time,))
     records = cursor.fetchall()
-    #print("Found reminders: ", records)
+    
     for record in records:
         reminderId = record[0]
         id = record[1]
@@ -191,5 +177,6 @@ async def check_db():
 async def on_ready():
     check_db.start()
 
-
-bot.run(TOKEN)
+if __name__ == "__main__":
+    setup()
+    bot.run(TOKEN)
